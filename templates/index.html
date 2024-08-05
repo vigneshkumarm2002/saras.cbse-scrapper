@@ -4,10 +4,94 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Data Scraper</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        background-color: #f4f4f4;
+        color: #333;
+        text-align: center;
+        padding: 20px;
+      }
+      form {
+        background-color: #fff;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        display: inline-block;
+        margin: 0 auto;
+      }
+      input[type="number"],
+      input[type="text"],
+      input[type="submit"] {
+        padding: 10px;
+        margin: 5px 0;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        width: calc(100% - 22px);
+      }
+      input[type="submit"] {
+        background-color: #28a745;
+        color: #fff;
+        border: none;
+        cursor: pointer;
+      }
+      input[type="submit"]:hover {
+        background-color: #218838;
+      }
+      #progress {
+        margin-top: 20px;
+        font-size: 18px;
+      }
+    </style>
+    <script>
+      function startScraping() {
+        const startAffno = document.getElementById("start_affno").value;
+        const endAffno = document.getElementById("end_affno").value;
+        const filename = document.getElementById("filename").value;
+
+        fetch("/scrape", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: new URLSearchParams({
+            start_affno: startAffno,
+            end_affno: endAffno,
+            filename: filename,
+          }),
+        })
+          .then((response) => response.json())
+          .then((data) => {
+            if (data.status === "Scraping started") {
+              checkProgress();
+            }
+          });
+      }
+
+      function checkProgress() {
+        fetch("/progress")
+          .then((response) => response.json())
+          .then((data) => {
+            document.getElementById(
+              "progress"
+            ).innerText = `Progress: ${data.progress}%`;
+            if (data.progress < 100) {
+              setTimeout(checkProgress, 1000); // Poll every second
+            } else {
+              document.getElementById(
+                "progress"
+              ).innerHTML = `Progress: 100% - Done! Your file is <a href="/download?filename=${encodeURIComponent(
+                document.getElementById("filename").value + ".csv"
+              )}" download>ready to download</a>.`;
+              document.querySelector("a").click(); // Automatically trigger download
+            }
+          });
+      }
+    </script>
   </head>
   <body>
     <h1>Data Scraper</h1>
-    <form action="/scrape" method="post">
+    <form onsubmit="event.preventDefault(); startScraping();">
       <label for="start_affno">Start Affiliation Number:</label>
       <input
         type="number"
@@ -29,11 +113,12 @@
         type="text"
         id="filename"
         name="filename"
-        placeholder="data.csv"
+        placeholder="data"
         required
       /><br /><br />
 
       <input type="submit" value="Scrape Data" />
     </form>
+    <p id="progress">Progress: 0%</p>
   </body>
 </html>

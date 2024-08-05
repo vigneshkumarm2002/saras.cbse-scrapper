@@ -1,10 +1,16 @@
-from flask import Flask, request, send_file, render_template
+from flask import Flask, request, send_file, render_template, jsonify
 import requests
 from bs4 import BeautifulSoup
 import pandas as pd
 import io
+import threading
 
 app = Flask(__name__)
+
+# Global variables for tracking progress and storing data
+progress = {'percentage': 0}
+progress_lock = threading.Lock()
+data_list = []
 
 def fetch_html(affno):
     url = f'https://saras.cbse.gov.in/cbse_aff/schdir_Report/AppViewdir.aspx?affno={affno}'
@@ -71,18 +77,43 @@ def home():
 
 @app.route('/scrape', methods=['POST'])
 def scrape():
+    global progress
+    global data_list
     start_affno = int(request.form['start_affno'])
     end_affno = int(request.form['end_affno'])
-    filename = request.form['filename']
+    filename = request.form['filename'] + '.csv'  # Automatically append .csv
     
     data_list = []
-    for affno in range(start_affno, end_affno + 1):
-        html_content = fetch_html(affno)
-        if html_content:
-            data = extract_data(html_content)
-            data['Affiliation Number'] = affno
-            data_list.append(data)
     
+    def scrape_data():
+        global data_list
+        total_affnos = end_affno - start_affno + 1
+        for affno in range(start_affno, end_affno + 1):
+            html_content = fetch_html(affno)
+            if html_content:
+                data = extract_data(html_content)
+                data['Affiliation Number'] = affno
+                data_list.append(data)
+            # Update progress
+            with progress_lock:
+                progress['percentage'] = int(((affno - start_affno + 1) / total_affnos) * 100)
+    
+    # Run scraping in a separate thread
+    thread = threading.Thread(target=scrape_data)
+    thread.start()
+    
+    # Return a response indicating the data is being processed
+    return jsonify({'status': 'Scraping started', 'filename': filename})
+
+@app.route('/progress')
+def check_progress():
+    with progress_lock:
+        return jsonify({'progress': progress['percentage']})
+
+@app.route('/download')
+def download():
+    global data_list
+    filename = request.args.get('filename', 'data.csv')
     df = pd.DataFrame(data_list)
     csv_output = io.StringIO()
     df.to_csv(csv_output, index=False, encoding='utf-8')
