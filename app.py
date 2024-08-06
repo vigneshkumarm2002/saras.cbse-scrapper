@@ -4,6 +4,7 @@ from bs4 import BeautifulSoup
 import pandas as pd
 import io
 import threading
+import concurrent.futures
 
 app = Flask(__name__)
 
@@ -11,6 +12,7 @@ app = Flask(__name__)
 progress = {'percentage': 0}
 progress_lock = threading.Lock()
 data_list = []
+
 
 def fetch_html(affno):
     url = f'https://saras.cbse.gov.in/cbse_aff/schdir_Report/AppViewdir.aspx?affno={affno}'
@@ -21,12 +23,13 @@ def fetch_html(affno):
         print(f"Failed to retrieve data for affno {affno}")
         return None
 
-def extract_data(html_content):
+
+def extract_data(html_content, affno):
     soup = BeautifulSoup(html_content, 'html.parser')
-    
+
     data = {
         'Name of Institution': '',
-        'Affiliation Number': '',
+        'Affiliation Number': affno,
         'State': '',
         'District': '',
         'Postal Address': '',
@@ -50,7 +53,7 @@ def extract_data(html_content):
         'Affiliation Period To': '',
         'Name of Trust/ Society/ Managing Committee': ''
     }
-    
+
     table = soup.find('table')  # Adjust if the structure is different
     if table:
         rows = table.find_all('tr')
@@ -59,56 +62,63 @@ def extract_data(html_content):
             if len(columns) >= 2:
                 key = columns[0].get_text(strip=True)
                 value = columns[1].get_text(strip=True)
-                
+
                 if key in data:
-                    # Handle cases with multiple values
                     if key == 'Phone No. with STD Code':
                         data[key] = value
                     elif key in ['Office', 'Residence']:
                         data[key] = ', '.join(value.splitlines())
                     else:
                         data[key] = value
-    
+
     return data
+
 
 @app.route('/')
 def home():
     return render_template('index.html')
 
+
 @app.route('/scrape', methods=['POST'])
 def scrape():
     global progress
     global data_list
-    start_affno = int(request.form['start_affno'])
-    end_affno = int(request.form['end_affno'])
+    affnos = request.form['affnos'].split(',')
     filename = request.form['filename'] + '.csv'  # Automatically append .csv
-    
+
     data_list = []
-    
+
+    def scrape_affno(affno):
+        html_content = fetch_html(affno.strip())
+        if html_content:
+            return extract_data(html_content, affno.strip())
+        return None
+
     def scrape_data():
         global data_list
-        total_affnos = end_affno - start_affno + 1
-        for affno in range(start_affno, end_affno + 1):
-            html_content = fetch_html(affno)
-            if html_content:
-                data = extract_data(html_content)
-                data['Affiliation Number'] = affno
-                data_list.append(data)
-            # Update progress
-            with progress_lock:
-                progress['percentage'] = int(((affno - start_affno + 1) / total_affnos) * 100)
-    
+        total_affnos = len(affnos)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+            future_to_affno = {executor.submit(scrape_affno, affno): affno for affno in affnos}
+            for i, future in enumerate(concurrent.futures.as_completed(future_to_affno)):
+                data = future.result()
+                if data:
+                    data_list.append(data)
+                with progress_lock:
+                    progress['percentage'] = int(((i + 1) / total_affnos) * 100)
+
     # Run scraping in a separate thread
     thread = threading.Thread(target=scrape_data)
     thread.start()
-    
+
     # Return a response indicating the data is being processed
     return jsonify({'status': 'Scraping started', 'filename': filename})
+
 
 @app.route('/progress')
 def check_progress():
     with progress_lock:
         return jsonify({'progress': progress['percentage']})
+
 
 @app.route('/download')
 def download():
@@ -118,13 +128,14 @@ def download():
     csv_output = io.StringIO()
     df.to_csv(csv_output, index=False, encoding='utf-8')
     csv_output.seek(0)
-    
+
     return send_file(
         io.BytesIO(csv_output.getvalue().encode('utf-8')),
         mimetype='text/csv',
         as_attachment=True,
         download_name=filename
     )
+
 
 if __name__ == '__main__':
     app.run(debug=True)

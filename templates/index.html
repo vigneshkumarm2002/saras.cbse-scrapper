@@ -20,7 +20,6 @@
         display: inline-block;
         margin: 0 auto;
       }
-      input[type="number"],
       input[type="text"],
       input[type="submit"] {
         padding: 10px;
@@ -45,9 +44,11 @@
     </style>
     <script>
       function startScraping() {
-        const startAffno = document.getElementById("start_affno").value;
-        const endAffno = document.getElementById("end_affno").value;
+        const affnos = document.getElementById("affnos").value;
         const filename = document.getElementById("filename").value;
+        const submitButton = document.getElementById("submit-btn");
+
+        submitButton.disabled = true;
 
         fetch("/scrape", {
           method: "POST",
@@ -55,8 +56,7 @@
             "Content-Type": "application/x-www-form-urlencoded",
           },
           body: new URLSearchParams({
-            start_affno: startAffno,
-            end_affno: endAffno,
+            affnos: affnos,
             filename: filename,
           }),
         })
@@ -83,6 +83,7 @@
               ).innerHTML = `Progress: 100% - Done! Your file is <a href="/download?filename=${encodeURIComponent(
                 document.getElementById("filename").value + ".csv"
               )}" download>ready to download</a>.`;
+              document.getElementById("submit-btn").disabled = false;
               document.querySelector("a").click(); // Automatically trigger download
             }
           });
@@ -92,19 +93,11 @@
   <body>
     <h1>Data Scraper</h1>
     <form onsubmit="event.preventDefault(); startScraping();">
-      <label for="start_affno">Start Affiliation Number:</label>
+      <label for="affnos">Affiliation Numbers (comma-separated):</label>
       <input
-        type="number"
-        id="start_affno"
-        name="start_affno"
-        required
-      /><br /><br />
-
-      <label for="end_affno">End Affiliation Number:</label>
-      <input
-        type="number"
-        id="end_affno"
-        name="end_affno"
+        type="text"
+        id="affnos"
+        name="affnos"
         required
       /><br /><br />
 
@@ -117,7 +110,7 @@
         required
       /><br /><br />
 
-      <input type="submit" value="Scrape Data" />
+      <input type="submit" id="submit-btn" value="Scrape Data" />
     </form>
     <p id="progress">Progress: 0%</p>
   </body>
